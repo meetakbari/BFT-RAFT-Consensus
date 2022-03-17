@@ -42,7 +42,86 @@ class PersistentDict(collections.UserDict):
         with open(self.path, 'w+') as f:
             f.write(json.dumps(self.data))
 
+class TallyCounter:
+    def __init__(self, categories=[]):
+        self.data = {c: {'current': 0, 'past': collections.deque(maxlen=10)}
+                     for c in categories}
+        loop = asyncio.get_event_loop()
+        loop.call_later(1, self._tick)
 
+    def _tick(self):
+        for name, category in self.data.items():
+            if category['current']:
+                logger.debug('Completed %s %s (%s ms/op)', category['current'],
+                             name, 1/category['current'] * 1000)
+
+            category['past'].append({time.time(): category['current']})
+            category['current'] = 0
+        loop = asyncio.get_event_loop()
+        loop.call_later(1, self._tick)
+
+    def increment(self, category, amount=1):
+        self.data[category]['current'] += amount
+
+
+def msgpack_appendable_pack(o, path):
+    open(path, 'a+').close()  # touch
+    with open(path, mode='r+b') as f:
+        packer = msgpack.Packer()
+        unpacker = msgpack.Unpacker(f)
+
+        if type(o) == list:
+            try:
+                previous_len = unpacker.read_array_header()
+            except msgpack.OutOfData:
+                previous_len = 0
+
+            # calculate and replace header
+            header = packer.pack_array_header(previous_len + len(o))
+            f.seek(0)
+            f.write(header)
+            f.write(bytes(1) * (MAX_MSGPACK_ARRAY_HEADER_LEN - len(header)))
+
+            # append new elements
+            f.seek(0, 2)
+            for element in o:
+                f.write(packer.pack(element))
+        else:
+            f.write(packer.pack(o))
+
+
+def msgpack_appendable_unpack(path):
+    # if not list?
+    # return msgpack.unpackb(f.read())
+    with open(path, 'rb') as f:
+        packer = msgpack.Packer()
+        unpacker = msgpack.Unpacker(f, encoding='utf-8')
+        length = unpacker.read_array_header()
+
+        header_lenght = len(packer.pack_array_header(length))
+        unpacker.read_bytes(MAX_MSGPACK_ARRAY_HEADER_LEN - header_lenght)
+        f.seek(MAX_MSGPACK_ARRAY_HEADER_LEN)
+
+        return [unpacker.unpack() for _ in range(length)]
+
+
+def extended_msgpack_serializer(obj):
+    """msgpack serializer for objects not serializable by default"""
+
+    if isinstance(obj, collections.deque):
+        serial = list(obj)
+        return serial
+    else:
+        raise TypeError("Type not serializable")
+
+# extract kth largest element from list l
+def get_kth_largest(l, k):
+    l = sorted(l, reverse=True)
+    return l[k-1]
+
+# get 2f +1
+def get_quorum_size(n):
+    return math.ceil((float(n-1)*(2/3)) + 1)
 
 # -------- KEY UTILS ------------
 def createAndWriteKeys(directoryName, n):
