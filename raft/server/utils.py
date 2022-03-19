@@ -195,3 +195,40 @@ def importClientPrivateKey(directoryName):
     key = RSA.importKey(f.read())
     f.close()
     return key
+
+def createDictDigest(msg):
+    h = SHA256.new()
+    h.update(pickle.dumps(ast.literal_eval(repr(msg))))
+    return h
+
+def validateSignature(message, signature, pk):
+    """ pk should be a verifier """
+    isValid = pk.verify(createDictDigest(message), signature)
+    return isValid
+
+def sign(msg, sk):
+    """ return a signed version of the message digest with the given secret key
+        sk should be a signer object """
+    return sk.sign(createDictDigest(msg))
+
+def getLogHash(log, index):
+    logslice = log[:index+1]
+    strRep = pickle.dumps(ast.literal_eval(repr(logslice)))
+    hashVal = hashlib.md5(strRep).digest()
+    return hashVal
+
+def validateDict(message, pk):
+    """ assuming that signature is in the message, validate if the signature is
+        correct """
+    assert 'signature' in message
+    signature = message['signature']
+    message['signature'] = 0
+    isValid = validateSignature(message, signature, pk)
+    message['signature'] = signature
+    return isValid
+
+def signDict(message, sk):
+    message['signature'] = 0
+    s = sign(message, sk)
+    message['signature'] = s 
+    return message
