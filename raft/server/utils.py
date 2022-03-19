@@ -232,3 +232,45 @@ def signDict(message, sk):
     s = sign(message, sk)
     message['signature'] = s 
     return message
+
+def validate_entries(entries, client_pk):
+    """ validate that all entries in entries are signed by the client """
+    for entry in entries:
+        if(entry['data']['key'] == 'cluster'): continue
+        signature = entry['signature']
+        if not validateSignature(entry['data'], signature, client_pk): return False
+        # if not validateDict(entry['data'], client_pk): return False
+    return True
+
+def validateIndex(log_data, proof, publicKeyMap, numNodes):
+        """ validate that the leader prepare and commit data are valid"""
+        prePrepareIndices = []
+        prepareIndices = []
+        if numNodes != len(proof):
+            return -2,-2
+
+        for peer, msg in proof.items():
+            if (len(msg) == 0): 
+                prePrepareIndices.append(-1)
+                prepareIndices.append(-1)
+                continue # this peer has not put a successful message for this leader
+            if (not validateDict(msg, publicKeyMap[peer])):
+                return -2,-2
+
+            (peerPrePrepare, peerPrePrepareHash) = msg['prePrepareIndex']
+            (peerPrepare, peerPrepareHash) = msg['prepareIndex']
+
+            if peerPrePrepare >= len(log_data) or peerPrepare >= len(log_data):
+                return -2,-2
+            if getLogHash(log_data, peerPrePrepare) != peerPrePrepareHash:
+                return -2,-2
+            if getLogHash(log_data, peerPrepare) != peerPrepareHash:
+                return -2,-2
+
+            prePrepareIndices.append(peerPrePrepare)
+            prepareIndices.append(peerPrepare)
+
+        quorum_size = get_quorum_size(numNodes)
+        prepareIndex = get_kth_largest(prePrepareIndices, quorum_size)
+        commitIndex = get_kth_largest(prepareIndices, quorum_size)
+        return prepareIndex, commitIndex
