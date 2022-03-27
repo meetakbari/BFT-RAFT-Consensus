@@ -58,3 +58,43 @@ class Log(collections.UserList):
         self.data = new_data
         utils.msgpack_appendable_pack(self.data, self.path)
 
+class Compactor():
+    def __init__(self, count=0, term=None, data={}):
+        self.count = count
+        self.term = term
+        self.data = data
+        self.path = os.path.join(cfg.config.getMyStorage(), 'compact')
+        #  load
+        # logger.debug('Initializing compactor')
+        if count or term or data:
+            self.persist()
+            # logger.debug('Using parameters')
+        elif os.path.isfile(self.path):
+            with open(self.path, 'rb') as f:
+                self.__dict__.update(msgpack.unpack(f, encoding='utf-8'))
+            logger.debug('Using persisted data')
+
+    @property
+    def index(self):
+        return self.count - 1
+
+    def persist(self):
+        with open(self.path, 'wb+') as f:
+            raw = {'count': self.count, 'term': self.term, 'data': self.data}
+            msgpack.pack(raw, f, use_bin_type=True)
+
+
+class DictStateMachine(collections.UserDict):
+    def __init__(self, data={}, lastApplied=0):
+        super().__init__(data)
+        self.lastApplied = lastApplied
+
+    def apply(self, items, end):
+        items = items[self.lastApplied + 1:end + 1]
+        for item in items:
+            self.lastApplied += 1
+            item = item['data']
+            if item['action'] == 'change':
+                self.data[item['key']] = item['value']
+            elif item['action'] == 'delete':
+                del self.data[item['key']]
