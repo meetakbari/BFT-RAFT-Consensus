@@ -63,3 +63,20 @@ class State:
         else:
             logger.info('Unrecognized message from %s: %s',
                         protocol.transport.get_extra_info('peername'), msg)
+
+    def on_client_append(self, protocol, msg):
+        """Redirect client to leader upon receiving a client_append message."""
+        entryIndex = self.log.log.findEntry(msg['data'])
+        if entryIndex != -1:
+            protocol.send({'type': 'result', 'success': True, 'proof':self.proofOfCommit, 'log':tuple(self.log.log.data), 'index': entryIndex})
+            print("Found entry immediately so just sending it back")
+            return
+
+        if hasattr(self, "election_timer") and self.election_timer is None:
+            self.start_election_timer()
+
+        msg = {'type': 'redirect',
+            'leader': self.volatile['leaderId']}
+        protocol.send(msg)
+        logger.debug('Redirect client %s:%s to leader',
+                    *protocol.transport.get_extra_info('peername'))
