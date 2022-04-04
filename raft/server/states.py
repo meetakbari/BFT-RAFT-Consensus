@@ -80,3 +80,31 @@ class State:
         protocol.send(msg)
         logger.debug('Redirect client %s:%s to leader',
                     *protocol.transport.get_extra_info('peername'))
+
+    def on_client_config(self, protocol, msg):
+        """Redirect client to leader upon receiving a client_config message."""
+        return self.on_client_append(protocol, msg)
+
+    def on_client_get(self, protocol, msg):
+        """Return state machine to client."""
+        state_machine = self.log.state_machine.data.copy()
+        self.stats.increment('read')
+        protocol.send(state_machine)
+
+    def on_client_diagnostic(self, protocol, msg):
+        """Return internal state to client."""
+        msg = {'status': self.__class__.__name__,
+               'persist': {'votedFor': self.persist['votedFor'],
+                           'currentTerm': self.persist['currentTerm']},
+               'volatile': self.volatile,
+               'log': {'commitIndex': self.log.commitIndex},
+               'stats': self.stats.data}
+        msg['volatile']['cluster'] = list(msg['volatile']['cluster'])
+
+        if type(self) is Leader:
+            msg.update({'leaderStatus':
+                        {'netIndex': tuple(self.nextIndex.items()),
+                         'prePrepareIndex': tuple(self.prePrepareIndexMap.items()),
+                         'waiting_clients': {k: len(v) for (k, v) in
+                                             self.waiting_clients.items()}}})
+        protocol.send(msg)
