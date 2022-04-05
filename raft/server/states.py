@@ -108,3 +108,8 @@ class State:
                          'waiting_clients': {k: len(v) for (k, v) in
                                              self.waiting_clients.items()}}})
         protocol.send(msg)
+
+    def _update_cluster(self, entries=None):
+        """Scans compacted log and log, looking for the latest cluster
+        configuration."""
+        return
