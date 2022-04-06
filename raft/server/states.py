@@ -113,3 +113,43 @@ class State:
         """Scans compacted log and log, looking for the latest cluster
         configuration."""
         return
+        
+    def on_peer_term_change(self, peer, msg):
+
+        # validate that the peer actually send this message
+        proposedTerm = msg['term']
+
+        if (not validateDict(msg, self.volatile['publicKeyMap'][peer])):
+            return
+
+        # should this message be for us
+        if self.getLeaderForTerm(proposedTerm) != self.volatile['address']:
+            return
+        
+        # this person has committed entries we don't even know about - we can't be leader for this term
+        if msg['commitIndex'] > self.log.index:
+            return
+
+        # validate commit point and prepare point on incoming message
+        hypothetical_new_log = self.log.log.data[:(msg['commitIndex'] + 1)] + list(msg['logAfterCommit'])
+        commitIndex = msg['commitIndex']
+        prepareIndex = commitIndex + len(msg['logAfterCommit'])
+
+        calcPrepare = prepareIndex
+        calcCommit = commitIndex
+        if (msg['proof'] is not None):
+            calcPrepare, calcCommit = validateIndex(hypothetical_new_log, msg['proof'], self.volatile['publicKeyMap'], len(self.volatile['cluster']))
+        if calcPrepare == -2 or not calcPrepare == prepareIndex or not calcCommit == commitIndex:
+            return
+        
+        if commitIndex > self.log.commitIndex:
+            self.log.commit(commitIndex)
+            
+        if proposedTerm not in self.term_change_messages:
+            self.term_change_messages[proposedTerm] = {}
+
+        self.term_change_messages[proposedTerm][peer] = msg
+            
+        quorum_size = get_quorum_size(len(self.volatile['cluster'])) - 1
+        if len(self.term_change_messages[proposedTerm]) == quorum_size:
+            self.send_new_term(proposedTerm)
