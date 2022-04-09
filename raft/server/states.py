@@ -153,6 +153,30 @@ class State:
         quorum_size = get_quorum_size(len(self.volatile['cluster'])) - 1
         if len(self.term_change_messages[proposedTerm]) == quorum_size:
             self.send_new_term(proposedTerm)
+    
+    def get_latest_element_from_log(logSlice, commitIndex):
+        if len(logSlice) == 0:
+            return 
+
+    def on_peer_new_term(self, peer, msg):
+        # validate from peer
+        if (not validateDict(msg, self.volatile['publicKeyMap'][peer])):
+            return
+        if msg['term'] <= self.persist['currentTerm']:
+            return
+
+        quorum_size = get_quorum_size(len(self.volatile['cluster'])) - 1 #2f
+        if len(msg['proof']) < quorum_size:
+            return # not enough messages to convince that new term
+        
+        for proofPeer, proofMsg in msg['proof'].items():
+            if (not validateDict(proofMsg, self.volatile['publicKeyMap'][proofPeer])):
+                return
+            if proofMsg['term'] != msg['term']:
+                return # not the right term in proof
+        self.persist['currentTerm'] = msg['term']
+        print(self.volatile['address'], " has received and validated a new_term message and is now reverting to follower state in term:", msg['term'])
+        self.orchestrator.change_follower()
 
     def send_new_term(self, proposedTerm):
         peer_messages = [tuple(i) for i in self.term_change_messages[proposedTerm].items()]
