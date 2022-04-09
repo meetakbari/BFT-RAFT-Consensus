@@ -113,7 +113,7 @@ class State:
         """Scans compacted log and log, looking for the latest cluster
         configuration."""
         return
-        
+
     def on_peer_term_change(self, peer, msg):
 
         # validate that the peer actually send this message
@@ -153,3 +153,40 @@ class State:
         quorum_size = get_quorum_size(len(self.volatile['cluster'])) - 1
         if len(self.term_change_messages[proposedTerm]) == quorum_size:
             self.send_new_term(proposedTerm)
+
+    def send_new_term(self, proposedTerm):
+        peer_messages = [tuple(i) for i in self.term_change_messages[proposedTerm].items()]
+        messages = [pm[1] for pm in peer_messages]
+        extra_log_entries = []
+        latest_term = -1
+        longest = -1
+        latestProof = None
+        for msg in messages:
+            logAfterCommit = list(msg['logAfterCommit'])
+            if len(logAfterCommit) > 0:
+                lastTerm = logAfterCommit[len(logAfterCommit) - 1].term
+                if lastTerm > latest_term:
+                    latest_term = lastTerm
+                    longest = len(logAfterCommit)
+                    extra_log_entries = logAfterCommit
+                    latestProof = msg['proof']
+                elif lastTerm == latest_term and len(logAfterCommit) > longest:
+                    longest = len(logAfterCommit)
+                    extra_log_entries = logAfterCommit
+                    latestProof = msg['proof']
+        self.log.append_entries(extra_log_entries, self.log.commitIndex)
+
+        new_term_msg = {
+            'type' : 'new_term',
+            'term' : proposedTerm,
+            'proof' : self.term_change_messages[proposedTerm]
+        }
+        # change ourselves to be a leader
+        print(self.volatile['address'], " has received enough term change messages and is now the leader")
+        self.persist['currentTerm'] = proposedTerm
+        self.orchestrator.change_leader(latestProof)
+
+        new_term_msg_signed = signDict(new_term_msg, self.volatile['privateKey'])
+        for addr in self.volatile['cluster']:
+            if addr != self.volatile['address']:
+                self.orchestrator.send_peer(addr, new_term_msg_signed)
