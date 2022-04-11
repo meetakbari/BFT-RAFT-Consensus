@@ -214,3 +214,18 @@ class State:
         for addr in self.volatile['cluster']:
             if addr != self.volatile['address']:
                 self.orchestrator.send_peer(addr, new_term_msg_signed)
+
+class Follower(State):
+    """Follower state."""
+    def __init__(self, old_state=None, orchestrator=None):
+        """Initialize parent and start election timer."""
+        super().__init__(old_state, orchestrator)
+        self.persist['votedFor'] = None
+        self.proofOfCommit = None
+        self.currTimeout = 5
+        self.timerStartTime = None
+
+    def teardown(self):
+        """Stop timers before changing state."""
+        self.election_timer.cancel()
+        self.election_timer = None
