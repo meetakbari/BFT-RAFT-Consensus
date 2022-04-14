@@ -244,3 +244,67 @@ class Follower(State):
             self.election_timer.cancel()
             self.election_timer = None
         self.currTimeout = 5
+
+    def on_peer_update(self, peer, msg):
+        """Manages incoming log entries from the Leader.
+        Data from log compaction is always accepted.
+        In the end, the log is scanned for a new cluster config.
+        """
+
+        # validate that the leader actually sent this message
+        # TODO validate that this leader is a valid leader
+        if (not validateDict(msg, self.volatile['publicKeyMap'][peer])):
+            return
+
+        entries = list(msg['entries'])
+        # validate that the entries proposed are all signed by the client
+        if not validate_entries(entries, self.volatile['clientKey']):
+            return
+
+        status_code = 0
+        # check for prev log index match
+        term_is_current = msg['term'] >= self.persist['currentTerm']
+        prev_log_term_match = msg['prevLogTerm'] is None or\
+            self.log.term(msg['prevLogIndex']) == msg['prevLogTerm']
+
+        if not term_is_current or not prev_log_term_match:
+            # there was a mismatch in prev log index
+            status_code = 1
+            logger.warning('Could not append entries. cause: %s', 'wrong\
+                term' if not term_is_current else 'prev log term mismatch')
+        else:
+            hypothetical_new_log = self.log.log.data[:(msg['prevLogIndex'] + 1)] + entries
+            # validate prepare and commit
+            calcPrepare, calcCommit = validateIndex(hypothetical_new_log, msg['proof'], self.volatile['publicKeyMap'], len(self.volatile['cluster']))
+            if calcPrepare == -2 or not calcPrepare == msg['leaderPrepare'] or not calcCommit == msg['leaderCommit']:
+                return
+
+            # either we don't need to overwrite a prepare or the leader
+            # has a valid prepare index greater than our own
+            should_copy_leader_log = (msg['leaderPrepare'] >= self.log.prepareIndex)
+            if not should_copy_leader_log:
+                status_code = 2 # you are trying to overwrite a prepare index without a greater leader prepare
+            else:
+                # we are successful so overwrite with leader's log
+                self.log.append_entries(msg['entries'], msg['prevLogIndex']+1)
+                self.log.prepare(msg['leaderPrepare'])
+                oldCommitIndex = self.log.commitIndex
+                self.log.commit(msg['leaderCommit'])
+                newCommitIndex = self.log.commitIndex
+                if newCommitIndex > oldCommitIndex:
+                    self.cancel_election_timer()
+                logger.debug('Log index is now %s', self.log.index)
+                self.stats.increment('append', len(msg['entries']))
+                self.proofOfCommit = msg['proof']
+            self.volatile['leaderId'] = msg['leaderId']
+
+        self._update_cluster()
+
+        # status_code: {0: Good, 1: prev-log index mismatch, 2: tried to overwrite prepare without a greater leader prepare}
+        resp = {'type': 'response_update', "status_code": status_code,
+                'term': self.persist['currentTerm'],
+                'prePrepareIndex': (self.log.index, self.log.getHash(self.log.index)),
+                'prepareIndex' : (self.log.prepareIndex, self.log.getHash(self.log.prepareIndex))
+        }
+        signedResp = signDict(resp, self.volatile['privateKey'])
+        self.orchestrator.send_peer(peer, signedResp)
