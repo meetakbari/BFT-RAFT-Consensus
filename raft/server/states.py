@@ -229,3 +229,18 @@ class Follower(State):
         """Stop timers before changing state."""
         self.election_timer.cancel()
         self.election_timer = None
+
+    def start_election_timer(self):
+        """Delays transition to the Candidate state by timer."""
+
+        timeout = self.currTimeout
+        loop = asyncio.get_event_loop()
+        self.election_timer = loop.\
+            call_later(timeout, self.orchestrator.change_voter)
+        logger.debug('Election timer started: %s s', timeout)
+
+    def cancel_election_timer(self):
+        if hasattr(self, "election_timer"):  
+            self.election_timer.cancel()
+            self.election_timer = None
+        self.currTimeout = 5
