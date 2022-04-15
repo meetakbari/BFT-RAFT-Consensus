@@ -308,3 +308,22 @@ class Follower(State):
         }
         signedResp = signDict(resp, self.volatile['privateKey'])
         self.orchestrator.send_peer(peer, signedResp)
+
+class Voter(Follower):
+    def __init__(self, old_state=None, orchestrator=None):
+        super().__init__(old_state, orchestrator)
+        self.election_timer = None
+        self.currTimeout *= 2
+        self.proposedTerm = self.persist['currentTerm'] + 1
+
+        timeout = 1
+        loop = asyncio.get_event_loop()
+        self.term_change_timer = loop.call_later(timeout, self.send_term_change)
+
+    def teardown(self):
+        if self.election_timer is not None: 
+            self.election_timer.cancel()
+            self.election_timer = None
+
+        self.term_change_timer.cancel()
+        self.term_change_timer = None
