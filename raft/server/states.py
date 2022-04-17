@@ -327,3 +327,26 @@ class Voter(Follower):
 
         self.term_change_timer.cancel()
         self.term_change_timer = None
+    
+    def send_term_change(self):
+        leader = self.getLeaderForTerm(self.proposedTerm)
+        if leader == self.volatile['address']:
+            return
+            
+        msg = {
+            'type': 'term_change',
+            'term': self.proposedTerm,
+            'proof':self.proofOfCommit,
+            'commitIndex' : self.log.commitIndex,
+            'logAfterCommit' : tuple(self.log.log.data[self.log.commitIndex + 1: self.log.prepareIndex + 1])
+        }
+        signedMsg = signDict(msg, self.volatile['privateKey'])
+        self.orchestrator.send_peer(leader, signedMsg)
+
+        timeout = randrange(1, 4) * 10 ** (-1 if cfg.config.debug else -2) 
+        loop = asyncio.get_event_loop()
+        self.term_change_timer = loop.call_later(timeout, self.send_term_change)
+
+    def on_peer_update(self, peer, msg):
+        print ("Received an update message in the voter state. Will ignore as term has not been confirmed")
+        return
