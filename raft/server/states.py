@@ -350,3 +350,27 @@ class Voter(Follower):
     def on_peer_update(self, peer, msg):
         print ("Received an update message in the voter state. Will ignore as term has not been confirmed")
         return
+
+class Leader(State):
+    """Leader state."""
+    def __init__(self, old_state=None, orchestrator=None, proof=None):
+        """Initialize parent, sets leader variables, start periodic
+        append_entries"""
+        super().__init__(old_state, orchestrator)
+        logger.info('Leader of term: %s', self.persist['currentTerm'])
+        self.volatile['leaderId'] = self.volatile['address']
+        self.prePrepareIndexMap = {p: -1 for p in self.volatile['cluster']} # latest pre-Prepare point per follower
+        self.nextIndexMap = {p: self.log.commitIndex + 1 for p in self.prePrepareIndexMap}
+        self.prepareIndexMap = {p: -1 for p in self.volatile['cluster']} # latest prepare position per follower
+        if proof is None:
+            self.latestMessageMap = {p: {} for p in self.volatile['cluster']} # latest update response per follower
+        else:
+            self.latestMessageMap = proof
+        self.waiting_clients = {} # log index -> [protocol for a client]
+        self.send_update()
+
+    def teardown(self):
+        """Stop timers before changing state."""
+        self.update_timer.cancel()
+        if hasattr(self, 'config_timer'):
+            self.config_timer.cancel()
