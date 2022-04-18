@@ -374,3 +374,31 @@ class Leader(State):
         self.update_timer.cancel()
         if hasattr(self, 'config_timer'):
             self.config_timer.cancel()
+
+    def send_update(self):
+        """Send update to the cluster, containing:
+        - nothing: if remote node is up to date.
+        - compacted log: if remote node has to catch up.
+        - log entries: if available.
+        Finally schedules itself for later execution."""
+        for peer in self.volatile['cluster']:
+            if peer == self.volatile['address']: continue
+            msg = {'type': 'update',
+                   'term': self.persist['currentTerm'],
+                   'leaderCommit': self.log.commitIndex,
+                   'leaderPrepare': self.log.prepareIndex, # all logs up to this point are prepared
+                   'leaderId': self.volatile['address'],
+                   'prevLogIndex': self.nextIndexMap[peer] - 1,
+                   'entries': tuple(self.log[self.nextIndexMap[peer]:
+                                       self.nextIndexMap[peer] + 100]),
+                   'proof': self.latestMessageMap}
+            msg.update({'prevLogTerm': self.log.term(msg['prevLogIndex'])})
+            msg = signDict(msg, self.volatile['privateKey'])
+
+            logger.debug('Sending %s entries to %s. Start index %s',
+                         len(msg['entries']), peer, self.nextIndexMap[peer])
+            self.orchestrator.send_peer(peer, msg)
+
+        timeout = randrange(1, 4) * 10 ** (-1 if cfg.config.debug else -2) 
+        loop = asyncio.get_event_loop()
+        self.update_timer = loop.call_later(timeout, self.send_update)
