@@ -402,3 +402,40 @@ class Leader(State):
         timeout = randrange(1, 4) * 10 ** (-1 if cfg.config.debug else -2) 
         loop = asyncio.get_event_loop()
         self.update_timer = loop.call_later(timeout, self.send_update)
+
+    def on_peer_response_update(self, peer, msg):
+        """Handle peer response to update RPC.
+        If successful RPC, try to commit new entries.
+        If RPC unsuccessful, backtrack."""
+        if not validateDict(msg, self.volatile['publicKeyMap'][peer]):
+            return False
+        status_code = msg['status_code']
+        if status_code == 0:
+            if len(self.latestMessageMap[peer]) != 0:
+                oldPrePrepare = self.latestMessageMap[peer]['prePrepareIndex'][0]
+                oldPrepare = self.latestMessageMap[peer]['prepareIndex'][0]
+                # if this message is not the latest message we've received from this peer, then don't substitute
+                if (msg['prePrepareIndex'][0] < oldPrePrepare or msg['prepareIndex'][0] < oldPrepare): return
+            self.latestMessageMap[peer] = msg
+            self.prePrepareIndexMap[peer] = msg['prePrepareIndex'][0] # only store the indices
+            self.nextIndexMap[peer] = msg['prePrepareIndex'][0] + 1
+            self.prepareIndexMap[peer] = msg['prepareIndex'][0] # only store the indices
+
+            self.prePrepareIndexMap[self.volatile['address']] = self.log.index
+            self.nextIndexMap[self.volatile['address']] = self.log.index + 1
+            # look at match index for all followers and see where
+            # global commit point is
+            quorum_size = get_quorum_size(len(self.prepareIndexMap))
+            prepareIndex = get_kth_largest(self.prePrepareIndexMap.values(), quorum_size)
+            self.log.prepare(prepareIndex)
+            self.prepareIndexMap[self.volatile['address']] = self.log.prepareIndex
+
+
+            commitIndex = get_kth_largest(self.prepareIndexMap.values(), quorum_size)
+            self.log.commit(commitIndex)
+            self.latestMessageMap[self.volatile['address']] = self.createUpdateMessageForSelf()
+            self.send_client_append_response() # TODO make sure client has proof of commit
+        elif status_code == 1:
+            # to aggressive so move index for this peer back one
+            self.nextIndexMap[peer] = max(0, self.nextIndexMap[peer] - 1)
+        # status_code = 2 do nothing
