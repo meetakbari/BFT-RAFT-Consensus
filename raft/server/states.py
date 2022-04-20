@@ -439,3 +439,81 @@ class Leader(State):
             # to aggressive so move index for this peer back one
             self.nextIndexMap[peer] = max(0, self.nextIndexMap[peer] - 1)
         # status_code = 2 do nothing
+
+    def createUpdateMessageForSelf(self):
+        """ create an *update* for ourselves with the latest prePrepareIndex and prepareIndex for the proof """
+        msg = {'status_code': 0, 
+            'prePrepareIndex': (self.log.index, self.log.getHash(self.log.index)),
+            'prepareIndex': (self.log.prepareIndex, self.log.getHash(self.log.prepareIndex))
+        }
+        signedMsg = signDict(msg, self.volatile['privateKey'])
+        return signedMsg
+
+    def on_client_append(self, protocol, msg):
+        """Append new entries to Leader log."""
+        entry = {
+            'term': self.persist['currentTerm'], 
+            'data': msg['data'],
+            'signature': msg['signature'] # signature over just the data
+        }
+        if not validate_entries([entry], self.volatile['clientKey']):
+            return
+        if msg['data']['key'] == 'cluster': # cannot have a key named cluster
+            protocol.send({'type': 'result', 'success': False})
+        self.log.append_entries([entry], self.log.index + 1) # append to our own log
+        if self.log.index in self.waiting_clients:
+            self.waiting_clients[self.log.index].append(protocol) # schedule client to be notified
+        else:
+            self.waiting_clients[self.log.index] = [protocol]      
+        signedMsg = self.createUpdateMessageForSelf()
+        self.on_peer_response_update(self.volatile['address'], signedMsg)
+
+    def send_client_append_response(self):
+        """Respond to client upon commitment of log entries."""
+        to_delete = []
+        for client_index, clients in self.waiting_clients.items():
+            if client_index <= self.log.commitIndex:
+                for client in clients:
+                    client.send({'type': 'result', 'success': True, 'proof':self.latestMessageMap, 'log':tuple(self.log.log.data), 'index': client_index})  # TODO
+                    logger.debug('Sent successful response to client')
+                    self.stats.increment('write')
+                to_delete.append(client_index)
+        for index in to_delete:
+            del self.waiting_clients[index]
+
+    def on_client_config(self, protocol, msg):
+        """Push new cluster config. When uncommitted cluster changes
+        are already present, retries until they are committed
+        before proceding."""
+        pending_configs = tuple(filter(lambda x: x['data']['key'] == 'cluster',
+                                self.log[self.log.commitIndex + 1:]))
+        if pending_configs:
+            timeout = randrange(1, 4) * 10 ** (0 if cfg.config.debug else -1)
+            loop = asyncio.get_event_loop()
+            self.config_timer = loop.\
+                call_later(timeout, self.on_client_config, protocol, msg)
+            return
+
+        success = True
+        cluster = set(self.volatile['cluster'])
+        peer = (msg['address'], int(msg['port']))
+        if msg['action'] == 'add' and peer not in cluster:
+            logger.info('Adding node %s', peer)
+            cluster.add(peer)
+            self.nextIndexMap[peer] = 0
+            self.prePrepareIndexMap[peer] = 0
+        elif msg['action'] == 'delete' and peer in cluster:
+            logger.info('Removing node %s', peer)
+            cluster.remove(peer)
+            del self.nextIndexMap[peer]
+            del self.prePrepareIndexMap[peer]
+        else:
+            success = False
+        if success:
+            self.log.append_entries([
+                {'term': self.persist['currentTerm'],
+                 'data':{'key': 'cluster', 'value': tuple(cluster),
+                         'action': 'change'}}],
+                self.log.index+1)
+            self.volatile['cluster'] = cluster
+        protocol.send({'type': 'result', 'success': success})
