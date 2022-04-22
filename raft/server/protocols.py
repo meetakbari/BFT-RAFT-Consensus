@@ -53,3 +53,26 @@ class Orchestrator():
     def broadcast_peers(self, message):
         for recipient in self.state.volatile['cluster']:
             self.send_peer(recipient, message)
+
+class ClientProtocol(asyncio.Protocol):
+    """TCP protocol for communicating with clients."""
+    def __init__(self, orchestrator):
+        self.orchestrator = orchestrator
+
+    def connection_made(self, transport):
+        logger.debug('Established connection with client %s:%s',
+                     *transport.get_extra_info('peername'))
+        self.transport = transport
+
+    def data_received(self, data):
+        message = msgpack.unpackb(data, encoding='utf-8')
+        self.orchestrator.data_received_client(self, message)
+
+    def connection_lost(self, exc):
+        logger.debug('Closed connection with client %s:%s',
+                     *self.transport.get_extra_info('peername'))
+
+    def send(self, message):
+        self.transport.write(msgpack.packb(
+            message, use_bin_type=True, default=extended_msgpack_serializer))
+        self.transport.close()
