@@ -54,6 +54,26 @@ class Orchestrator():
         for recipient in self.state.volatile['cluster']:
             self.send_peer(recipient, message)
 
+class PeerProtocol(asyncio.Protocol):
+    """UDP protocol for communicating with peers."""
+    def __init__(self, orchestrator, first_message=None):
+
+        self.orchestrator = orchestrator
+        self.first_message = first_message
+
+    def connection_made(self, transport):
+        self.transport = transport
+        if self.first_message:
+            transport.sendto(
+                msgpack.packb(self.first_message, use_bin_type=True))
+
+    def datagram_received(self, data, sender):
+        message = msgpack.unpackb(data, encoding='utf-8', use_list=False)
+        self.orchestrator.data_received_peer(sender, message)
+
+    def error_received(self, ex):
+        print('Error:', ex)
+        
 class ClientProtocol(asyncio.Protocol):
     """TCP protocol for communicating with clients."""
     def __init__(self, orchestrator):
