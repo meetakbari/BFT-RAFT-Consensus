@@ -30,3 +30,28 @@ def setup(config):
 
     logger.info('Serving on %s', addrTuple)
     return server
+
+def run():
+    """Start a node.
+        e.g python3 main.py /home/meet/Documents/BTP/BFT-RAFT-Consensus/raft_cluster/config.json 1 --debug True
+    """
+    parser = argparse.ArgumentParser(description='Start node for Raft BFT')
+    parser.add_argument('configFile', type=str, help='the configuration file')
+    parser.add_argument('id', type=int, help='the node id to be started')
+    parser.add_argument('--debug',type=bool, default=False, help="print debugger log")
+    args = parser.parse_args()
+    config = Config.CreateConfig(args.configFile, args.id, args.debug)
+    server = setup(config)
+    loop = asyncio.get_event_loop()
+    try:
+        loop.run_forever()
+    except KeyboardInterrupt:
+        pass
+
+    # # Close the server
+    server.close()
+    loop.run_until_complete(server.wait_closed())
+    loop.close()
+
+if __name__ == '__main__':
+    run()
