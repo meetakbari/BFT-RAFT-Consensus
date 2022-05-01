@@ -1,3 +1,5 @@
+*** This file contains quick to access CLI commands to run the project ***
+
 # To start the server node with id:
 python3 main.py /home/meet/Documents/BTP/BFT-RAFT-Consensus/raft_cluster/config.json 0
 
