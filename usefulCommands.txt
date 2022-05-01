@@ -1,0 +1,6 @@
+# To start the server node with id:
+python3 main.py /home/meet/Documents/BTP/BFT-RAFT-Consensus/raft_cluster/config.json 0
+
+# To start the client node with leader/follower port and cluster nodes information:
+from distributedDict import createClientDict
+d = createClientDict('127.0.0.1', 9113, "/home/meet/Documents/BTP/BFT-RAFT-Consensus/raft_cluster/config.json")
