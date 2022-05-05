@@ -60,7 +60,8 @@ class AbstractClient:
             ['data'], self.privateKey)
             message['signature'] = signature
         sock.send(msgpack.packb(message, use_bin_type=True))
-        # sock.settimeout(5)
+        # UPDATED VALUE OF settimeout from 5 seconds to 1.5 seconds below
+        sock.settimeout(1.5)
         return sock
     
     def validate_response(self, message, resp):
