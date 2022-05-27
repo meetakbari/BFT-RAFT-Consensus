@@ -16,9 +16,9 @@ Why: you have to pre-populate the server logs with information about which other
 
 2. Open three terminal windows. In each one, go to the root directory of the project. Then, in each of the tree, paste one of the following: 
 
-`python start_server.py s1 10001` 
-`python start_server.py s2 10002`
-`python start_server.py s3 10003`
++ `python start_server.py s1 10001` 
++ `python start_server.py s2 10002`
++ `python start_server.py s3 10003`
 
 Now you need to wait 10-20 seconds for someone to get elected the leader.
 
