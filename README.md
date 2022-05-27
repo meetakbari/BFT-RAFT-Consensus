@@ -36,4 +36,4 @@ client|@set account1 500
 
 ### To run the tests
 + `pytest tests/test_logManager.py --co`
-+ `python -m unittest`
++ `python -m unittest test_file_path/name.py`
